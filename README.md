@@ -46,6 +46,7 @@ Folder Structure:
 ```
 ## Usage
 
+- Navigate to /csgo/resource/overviews then copy contents to /app/resource/overviews on second pc
 - Start the radar
 - Start CSGO and wait until you are in the main menu (or until the offsets are visible in the console)
 - Start the server (`node server/server.js`)
