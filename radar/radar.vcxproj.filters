@@ -2,12 +2,10 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="radar.cpp" />
-    <ClCompile Include="utils\process\process.cpp">
-      <Filter>utils\process</Filter>
-    </ClCompile>
     <ClCompile Include="utils\utils.cpp">
       <Filter>utils</Filter>
     </ClCompile>
+    <ClCompile Include="utils\process\process.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="utils">
@@ -21,12 +19,12 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="utils\process\process.hpp">
-      <Filter>utils\process</Filter>
-    </ClInclude>
     <ClInclude Include="utils\utils.hpp">
       <Filter>utils</Filter>
     </ClInclude>
+    <ClInclude Include="utils\process\process.hpp" />
+    <ClInclude Include="offsets.hpp" />
+    <ClInclude Include="weapon_ids.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="utils\protobuf\protobuf.proto">

@@ -22,6 +22,10 @@ fs.mkdir('public', () => {
     fs.mkdir('public/images', () => {});
 });
 
+fs.mkdir('resource', () => {
+    fs.mkdir('resource/overviews', () => {});
+});
+
 const files = {
     settings: 'settings.json',
 };
@@ -45,7 +49,6 @@ var process = net.connect(PIPE_PATH, (pipe) => {
         for (const key in data) {
             if (key == 'global') {
                 // update globals
-                globals.obj.directory = data[key].directory;
                 globals.obj.map.name = data[key].map;
                 globals.obj.team = data[key].team;
 
@@ -54,7 +57,7 @@ var process = net.connect(PIPE_PATH, (pipe) => {
                 let map_file;
                 try {
                     map_file = fs.readFileSync(
-                        `${data[key].directory}\\resource\\overviews\\${data[key].map}.txt`
+                        `${_process.cwd()}\\resource\\overviews\\${data[key].map}.txt`
                     );
 
                     map_file = vdf.parse(map_file.toString());
@@ -72,7 +75,7 @@ var process = net.connect(PIPE_PATH, (pipe) => {
 
                 if (globals.obj.last_map !== data[key].map) {
                     execSync(
-                        `cd dependencies & texconv.exe -ft JPG -l -nologo -y -o ../public/images "${data[key].directory}\\resource\\overviews\\${data[key].map}_radar.dds"`,
+                        `cd dependencies & texconv.exe -ft JPG -l -nologo -y -o ../public/images "${_process.cwd()}\\resource\\overviews\\${data[key].map}_radar.dds"`,
                         { windowsHide: true, timeout: 30000 }
                     );
                     globals.obj.image = `data:image/jpg;base64,${fs.readFileSync(

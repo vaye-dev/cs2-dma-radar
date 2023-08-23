@@ -1,5 +1,4 @@
 let obj = {
-    directory: undefined,
     map: {
         name: undefined,
         scale: undefined,

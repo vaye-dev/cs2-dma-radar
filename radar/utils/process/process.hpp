@@ -1,58 +1,73 @@
 #pragma once
-#define WIN32_LEAN_AND_MEAN
+#define WIN32_MEAN_AND_LEAN
 #include <Windows.h>
 #include <memory>
 #include <string>
 #include <array>
 #include <vector>
+#include <assert.h>
+#include "vmmdll.h"
+#include "leechcore.h"
 
-class Process
-{
+class c_process {
 public:
-	auto attach() -> bool;
-	auto detach() -> void;
-	auto write(DWORD_PTR dw_address, LPCVOID lpc_buffer, DWORD_PTR dw_size) -> bool;
-	auto read(DWORD_PTR dw_address, LPVOID lp_buffer, DWORD_PTR dw_size) -> bool;
-	auto scan(DWORD_PTR start, DWORD_PTR size, const char* signature, const char* mask) -> DWORD_PTR;
-	auto find_netvar(DWORD_PTR dwClasses, const char* table, const char* var) -> DWORD_PTR;
+	bool init(const std::string& process_name);
 
-	template<typename T>
-	auto read(const DWORD_PTR& dw_address, const T& t_default = T()) -> T
-	{
-		T t_ret;
-		if (!read(dw_address, &t_ret, sizeof(T)))
-			return t_default;
-
-		return t_ret;
-	}
-
-	template<typename T>
-	auto read_multi(DWORD_PTR dw_address, std::vector<DWORD_PTR> v_offset, const T& tDefault = T()) -> T
-	{
-		T t_ret = dw_address;
-		for (auto i = 0; i < v_offset.size(); i++)
-		{
-			read(t_ret + v_offset[i], &t_ret, sizeof(T));
-		}
-		return t_ret;
-	}
+	DWORD get_process_pid(const std::string& process_name);
+	DWORD get_module_size(const std::wstring& module_name);
+	uintptr_t get_module_base(const std::wstring& module_name);
+	uint32_t scan(uintptr_t start, size_t size, const char* signature, const char* mask);
 	
-	template<typename T>
-	auto write(const DWORD_PTR& dw_address, const T& t_value) -> bool
-	{
-		return write(dw_address, &t_value, sizeof(T));
+	void dump(const std::string& file_name);
+
+	bool read(uintptr_t address, void* buffer, size_t length) {
+		return VMMDLL_MemReadEx(m_vmh, (DWORD)m_pid, address, (PBYTE)buffer, (DWORD)length, 0, VMMDLL_FLAG_NOCACHE);
 	}
 
-	auto get_module_base_address(const char* str_module_name) -> std::array<DWORD, 2>;
+	bool write(uintptr_t address, void* buffer, size_t length) {
+		return VMMDLL_MemWrite(m_vmh, (DWORD)m_pid, address, (PBYTE)buffer, (DWORD)length);
+	}
 
-public:
-	HWND window = nullptr;
-	HANDLE process = nullptr;
-	DWORD process_id = NULL;
+	template<typename T>
+	T read(uintptr_t address) {
+		T buffer{};
+		VMMDLL_MemReadEx(m_vmh, (DWORD)m_pid, address, (PBYTE)&buffer, (DWORD)sizeof(T), 0, VMMDLL_FLAG_NOCACHE);
+		assert(buffer != NULL);
+		return buffer;
+	}
 
-	std::array<DWORD, 2> csgo = { NULL, NULL };
-	std::array<DWORD, 2> engine = { NULL, NULL };
-	std::array<DWORD, 2> client = { NULL, NULL };
+	template<typename T>
+	size_t write(uintptr_t address, T value) {
+		size_t written = 0;
+		VMMDLL_MemWrite(m_vmh, (DWORD)m_pid, address, (PBYTE)&value, (DWORD)sizeof(T));
+		assert(written != NULL);
+		return written;
+	}
+
+	auto read_string(const uintptr_t addr, const int max_length = 1000) -> std::string {
+		std::string str;
+		std::vector<char> chars(max_length);
+		if (read(addr, chars.data(), max_length)) {
+			for (size_t i = 0; i < chars.size(); i++) {
+				if (chars[i] == '\0') break;
+				str.push_back(chars[i]);
+			}
+
+			if (static_cast<int>(str[0]) == 0 && str.size() == 1) return "";
+		}
+		return str;
+	}
+
+	uintptr_t& client() { return m_client; }
+	uintptr_t& engine() { return m_engine; }
+	uintptr_t process_base() { return m_base; }
+	DWORD pid() { return m_pid; }
+private:
+	VMM_HANDLE m_vmh = 0;
+	DWORD m_pid = 0;
+	uintptr_t m_base = 0;
+	uintptr_t m_client = 0;
+	uintptr_t m_engine = 0;
 };
 
-inline std::unique_ptr<Process> process = std::make_unique<Process>();
+inline std::unique_ptr<c_process> process = std::make_unique<c_process>();

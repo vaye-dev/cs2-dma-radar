@@ -1,216 +1,115 @@
 #include "process.hpp"
 
-
-#include <iostream>
-#include <TlHelp32.h>
 #include <cstdio>
 #include <wchar.h>
 #include <tchar.h>
+#include <assert.h>
+#include <iostream>
 
 #include "../utils.hpp"
 
-auto Process::attach() -> bool
-{
-	process = OpenProcess(PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION, FALSE, process_id);
-	if (!process)
+bool c_process::init(const std::string& process_name) {
+	LPSTR args[] = { (LPSTR)"", (LPSTR)"-device", (LPSTR)"fpga" };
+	m_vmh = VMMDLL_Initialize(3, args);
+	if (!m_vmh) {
+		std::cout << "Failed initializing vmdll.\n";
 		return false;
-	
+	}
+
+	if (m_pid = get_process_pid(process_name); !m_pid) {
+		std::cout << "Failed opening process handle.\n";
+		return false;
+	}
+
+	m_base = get_module_base(utils->string_to_wstring(process_name));
+	if (!m_base) {
+		std::cout << "Failed getting base address for process.\n";
+		return false;
+	}
+
 	return true;
 }
 
-auto Process::detach() -> void
-{
-	if (process)
-		CloseHandle(process);
+DWORD c_process::get_process_pid(const std::string& process_name) {
+	DWORD pid = 0;
+	if (!VMMDLL_PidGetFromName(m_vmh, (LPSTR)process_name.c_str(), &pid)) {
+		return 0;
+	}
 
-	process = nullptr;
-	process_id = NULL;
-	csgo = { NULL, NULL };
-	engine = { NULL, NULL };
-	client = { NULL, NULL };
+	return pid;
 }
 
-auto Process::write(DWORD_PTR dw_address, LPCVOID lpc_buffer, DWORD_PTR dw_size) -> bool
-{
-	return (WriteProcessMemory(process, reinterpret_cast<LPVOID>(dw_address), lpc_buffer, dw_size, nullptr) == TRUE);
+uintptr_t c_process::get_module_base(const std::wstring& module_name) {
+	return VMMDLL_ProcessGetModuleBase(m_vmh, (DWORD)m_pid, (LPWSTR)module_name.c_str());
 }
 
-auto Process::read(DWORD_PTR dw_address, LPVOID lp_buffer, DWORD_PTR dw_size) -> bool
-{
-	return (ReadProcessMemory(process, reinterpret_cast<LPCVOID>(dw_address), lp_buffer, dw_size, nullptr) == TRUE);
+DWORD c_process::get_module_size(const std::wstring& module_name) {
+	PVMMDLL_MAP_MODULEENTRY me;
+	if (!VMMDLL_Map_GetModuleFromName(m_vmh, (DWORD)m_pid, (LPWSTR)module_name.c_str(), &me, VMMDLL_MODULE_FLAG_NORMAL)) {
+		return 0;
+	}
+
+	return me->cbImageSize;
 }
 
-bool DataCompare(const BYTE* pData, const BYTE* pMask, const char* pszMask)
-{
-	for (; *pszMask; ++pszMask, ++pData, ++pMask)
-	{
-		if (*pszMask == 'x' && *pData != *pMask)
-		{
-			return false;
+void c_process::dump(const std::string& file_name) {
+	auto base_address = m_base;
+	auto dos_header = read<IMAGE_DOS_HEADER>(base_address);
+	auto nt_headers = read<IMAGE_NT_HEADERS>(base_address + dos_header.e_lfanew);
+
+	if (dos_header.e_magic != IMAGE_DOS_SIGNATURE || nt_headers.Signature != IMAGE_NT_SIGNATURE || nt_headers.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC)
+		return;
+
+	// allocate size of image to heap
+	auto target = std::unique_ptr<uint8_t[]>(new uint8_t[nt_headers.OptionalHeader.SizeOfImage]);
+
+	// fill buffer
+	read(base_address, target.get(), nt_headers.OptionalHeader.SizeOfImage);
+
+	auto pnt_headers = reinterpret_cast<PIMAGE_NT_HEADERS>(target.get() + dos_header.e_lfanew);
+	auto section_headers = reinterpret_cast<PIMAGE_SECTION_HEADER>(
+		target.get() +
+		static_cast<size_t>(dos_header.e_lfanew) +
+		static_cast<size_t>(FIELD_OFFSET(IMAGE_NT_HEADERS, OptionalHeader)) +
+		static_cast<size_t>(nt_headers.FileHeader.SizeOfOptionalHeader));
+
+	// fix section headers
+	for (size_t i = 0; i < nt_headers.FileHeader.NumberOfSections; i += 1) {
+		auto& sec = section_headers[i];
+		sec.PointerToRawData = sec.VirtualAddress;
+		sec.SizeOfRawData = sec.Misc.VirtualSize;
+		if (!memcmp(sec.Name, ".reloc\0\0", 8)) {
+			pnt_headers->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC] = {
+				sec.VirtualAddress,
+				sec.Misc.VirtualSize,
+			};
 		}
 	}
 
-	return (*pszMask == NULL);
+	// write dump to file
+	const auto dump_file = CreateFileA(file_name.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_COMPRESSED, NULL);
+	if (dump_file != INVALID_HANDLE_VALUE) {
+		WriteFile(dump_file, target.get(), static_cast<uint32_t>(nt_headers.OptionalHeader.SizeOfImage), NULL, NULL);
+		CloseHandle(dump_file);
+	}
 }
 
-auto Process::scan(DWORD_PTR start, DWORD_PTR size, const char* signature, const char* mask) -> DWORD_PTR
-{
-	const auto remote = new BYTE[size];
+uint32_t c_process::scan(uintptr_t start, size_t size, const char* signature, const char* mask) {
+	auto data_compare = [&](const uint8_t* pData, const uint8_t* pMask, const char* pszMask) {
+		for (; *pszMask; ++pszMask, ++pData, ++pMask)
+			if (*pszMask == 'x' && *pData != *pMask)
+				return false;
 
-	if (!read(start, remote, size))
-	{
-		delete[] remote;
+		return (*pszMask == NULL);
+	};
+	
+	std::unique_ptr<uint8_t[]> remote(new uint8_t[size]);
+	if (!read(start, remote.get(), size))
 		return NULL;
-	}
 
 	for (size_t i = 0; i < size; i++)
-	{
-		if (DataCompare(static_cast<const BYTE*>(remote + i), reinterpret_cast<const BYTE*>(signature), mask))
-		{
-			delete[] remote;
+		if (data_compare(static_cast<const uint8_t*>(remote.get() + i), reinterpret_cast<const uint8_t*>(signature), mask))
 			return start + i;
-		}
-	}
-	delete[] remote;
 
 	return NULL;
 }
-
-auto Process::get_module_base_address(const char* str_module_name) -> std::array<DWORD, 2>
-{
-	HANDLE h_snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, process_id);
-	if (h_snapshot == INVALID_HANDLE_VALUE)
-		return { NULL, NULL };
-
-	MODULEENTRY32 module_entry;
-	module_entry.dwSize = sizeof(MODULEENTRY32);
-	
-	if (Module32First(h_snapshot, &module_entry))
-	{
-		if (!strcmp(str_module_name, module_entry.szModule)) {
-			CloseHandle(h_snapshot);
-			return { reinterpret_cast<DWORD>(module_entry.modBaseAddr), module_entry.modBaseSize };
-		}
-	}
-	while (Module32Next(h_snapshot, &module_entry))
-	{
-		if (!strcmp(str_module_name, module_entry.szModule)) {
-			CloseHandle(h_snapshot);
-			return { reinterpret_cast<DWORD>(module_entry.modBaseAddr), module_entry.modBaseSize };
-		}
-	}
-	CloseHandle(h_snapshot);
-	return { NULL, NULL };
-}
-/*
-class CRecvProp;
-class CRecvTable
-{
-public:
-	const char* GetTableName()
-	{
-		char pszTableName[128];
-		ReadProcessMemory(process->process, reinterpret_cast<LPCVOID>(process->read<DWORD_PTR>(reinterpret_cast<DWORD_PTR>(this) + 0xC)), &pszTableName, sizeof(pszTableName), nullptr);
-		return pszTableName;
-	}
-
-	int GetMaxProp()
-	{
-		return process->read<int>(reinterpret_cast<DWORD_PTR>(this) + 0x4);
-	}
-
-	CRecvProp* GetProp(int iIndex)
-	{
-		return reinterpret_cast<CRecvProp*>(process->read<DWORD_PTR>(reinterpret_cast<DWORD_PTR>(this) + 0x3C * iIndex));
-	}
-};
-
-class CRecvProp
-{
-public:
-	const char* GetVarName()
-	{
-		char pszVarName[128];
-		ReadProcessMemory(process->process, reinterpret_cast<LPCVOID>(process->read<DWORD_PTR>(reinterpret_cast<DWORD_PTR>(this))), &pszVarName, sizeof(pszVarName), nullptr);
-		return pszVarName;
-	}
-
-	int GetOffset()
-	{
-		return process->read<int>(reinterpret_cast<DWORD_PTR>(this) + 0x2C);
-	}
-
-	CRecvTable* GetDataTable()
-	{
-		return process->read<CRecvTable*>(reinterpret_cast<DWORD_PTR>(this) + 0x28);
-	}
-};
-
-class ClientClass
-{
-public:
-	const char* GetNetworkName()
-	{
-		char pszNetworkName[128];
-		ReadProcessMemory(process->process, reinterpret_cast<LPCVOID>(process->read<DWORD_PTR>(reinterpret_cast<DWORD_PTR>(this) + 0x8)), &pszNetworkName, sizeof(pszNetworkName), nullptr);
-		return pszNetworkName;
-	}
-
-	ClientClass* GetNextClass()
-	{
-		return process->read<ClientClass*>(reinterpret_cast<DWORD_PTR>(this) + 0x10);
-	}
-
-	CRecvTable* GetTable()
-	{
-		return process->read<CRecvTable*>(reinterpret_cast<DWORD_PTR>(this) + 0xC);
-	}
-};
-
-auto Process::find_netvar(DWORD_PTR dwClasses, const char* table, const char* var) -> DWORD_PTR
-{
-	CRecvProp* _prop[3];
-	for (auto _class = reinterpret_cast<ClientClass*>(dwClasses); _class; _class = _class->GetNextClass())
-	{
-		if (strcmp(table, _class->GetTable()->GetTableName()))
-			continue;
-
-		for (auto i = 0; i < _class->GetTable()->GetMaxProp(); ++i)
-		{
-			_prop[0] = _class->GetTable()->GetProp(i);
-			if (isdigit(_prop[0]->GetVarName()[0]))
-				continue;
-			
-			if (!strcmp(_prop[0]->GetVarName(), var))
-				return _prop[0]->GetOffset();
-			
-			if (!_prop[0]->GetDataTable())
-				continue;
-
-			for (auto j = 0; j < _prop[0]->GetDataTable()->GetMaxProp(); ++j)
-			{
-				_prop[1] = _prop[0]->GetDataTable()->GetProp(j);
-				if (isdigit(_prop[1]->GetVarName()[0]))
-					continue;
-
-				if (!strcmp(_prop[1]->GetVarName(), var))
-					return _prop[1]->GetOffset();
-
-				if (!_prop[1]->GetDataTable())
-					continue;
-
-				for (auto k = 0; k < _prop[1]->GetDataTable()->GetMaxProp(); ++k)
-				{
-					_prop[2] = _prop[1]->GetDataTable()->GetProp(k);
-					if (isdigit(_prop[2]->GetVarName()[0]))
-						continue;
-
-					if (!strcmp(_prop[2]->GetVarName(), var))
-						return _prop[2]->GetOffset();
-				}
-			}
-		}
-	}
-	return NULL;
-}
-*/
