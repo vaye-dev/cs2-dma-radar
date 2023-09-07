@@ -111,9 +111,9 @@ namespace offset {
 	// credits: https://github.com/UnnamedZ03/CS2-external-base/blob/main/source/CSSPlayer.hpp
 
 	/* @NOTE: I retrieved this with a little reversing, nothing complicated and I regularly post new ones. */
-	constexpr DWORD64 s_dwEntityList_Offset = 0x167ABA8;
+	constexpr DWORD64 s_dwEntityList_Offset = 0x1624C78;
 	constexpr DWORD64 viewmatrix_Offset = 0x1714C70;
-	constexpr DWORD64 localplayer_Offset = 0x17142C8;
+	constexpr DWORD64 localplayer_Offset = 0x1715418;
 	
 	constexpr DWORD64 globals_Offset = 0x1556718;
 
