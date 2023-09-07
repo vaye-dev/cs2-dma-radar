@@ -25,6 +25,8 @@
     <ClInclude Include="utils\process\process.hpp" />
     <ClInclude Include="offsets.hpp" />
     <ClInclude Include="weapon_ids.hpp" />
+    <ClInclude Include="structs.hpp" />
+    <ClInclude Include="funcs.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="utils\protobuf\protobuf.proto">

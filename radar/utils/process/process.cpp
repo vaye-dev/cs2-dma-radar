@@ -32,9 +32,8 @@ bool c_process::init(const std::string& process_name) {
 
 DWORD c_process::get_process_pid(const std::string& process_name) {
 	DWORD pid = 0;
-	if (!VMMDLL_PidGetFromName(m_vmh, (LPSTR)process_name.c_str(), &pid)) {
+	if (!VMMDLL_PidGetFromName(m_vmh, (LPSTR)process_name.c_str(), &pid))
 		return 0;
-	}
 
 	return pid;
 }
@@ -94,7 +93,7 @@ void c_process::dump(const std::string& file_name) {
 	}
 }
 
-uint32_t c_process::scan(uintptr_t start, size_t size, const char* signature, const char* mask) {
+uint64_t c_process::scan(uintptr_t start, size_t size, const char* signature, const char* mask) {
 	auto data_compare = [&](const uint8_t* pData, const uint8_t* pMask, const char* pszMask) {
 		for (; *pszMask; ++pszMask, ++pData, ++pMask)
 			if (*pszMask == 'x' && *pData != *pMask)

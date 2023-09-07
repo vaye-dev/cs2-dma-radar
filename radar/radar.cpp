@@ -1,5 +1,6 @@
 #define _CRT_SECURE_NO_WARNINGS 1
 #define _SILENCE_ALL_CXX20_DEPRECATION_WARNINGS 1
+#define CS2
 #pragma warning(disable : 4996)
 
 #include <Windows.h>
@@ -11,17 +12,19 @@
 #include <cstring>
 
 #pragma comment(lib, "ws2_32.lib")
-//#pragma comment(lib, "libprotobuf.lib")
-//#include "utils/protobuf/protobuf.pb.h"
 
 #include "utils/process/process.hpp"
 #include "utils/json.hpp"
 #include "offsets.hpp"
 #include "weapon_ids.hpp"
+#include "funcs.hpp"
+#include "structs.hpp"
 
 HANDLE pipe = INVALID_HANDLE_VALUE;
 char pipe_input[1023];
 char pipe_output[1023];
+
+std::string map_name = "";
 
 bool connect() {
 	pipe = INVALID_HANDLE_VALUE;
@@ -44,10 +47,118 @@ bool connect() {
 	return true;
 }
 
-int main() {
-    std::cout << "Waiting for Counter-Strike: Global Offensive..." << std::endl;
+#ifdef CS2
+void setup_csgo() {
+	std::cout << "Waiting for Counter-Strike: Global Offensive..." << std::endl;
+	if (!process->init("cs2.exe"))
+		return;
+
+	std::cout << "Found CS2.\n";
+
+	while (!process->client()) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		if (!process->client())
+			process->client() = process->get_module_base(L"client.dll");
+	}
+
+	auto client = process->client();
+
+
+	std::thread([]() {
+		while (true) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+			std::cout << "enter map name (de_dust2, de_mirage, de_overpass, etc.): ";
+			std::cin >> map_name;
+		}
+	}).detach();
+
+	connect();
+	while (true) {
+		const auto local_player = process->read<uint64_t>(client + offset::localplayer_Offset);
+		if (!local_player)
+			continue;
+
+		offset::g_dwEntList = process->read<uint64_t>(client + offset::s_dwEntityList_Offset);
+		if (!offset::g_dwEntList)
+			continue;
+
+		static uint64_t first_player_controller = 0;
+		if (first_player_controller == 0 || process->read<int>(local_player + offset::s_dwPawnHealth_Offset) <= 0) {
+			for (int i = 0; i < 32; i++) {
+				const auto entity = get_entity(i);
+				if (!entity)
+					continue;
+
+				const auto entity_identity = process->read<uint64_t>(entity + 0x10);
+				if (!entity_identity)
+					continue;
+
+				const auto designer_ptr = process->read<uint64_t>(entity_identity + 0x20);
+				if (!designer_ptr)
+					continue;
+
+				const auto designer_name = process->read_string(designer_ptr, 32);
+				if (designer_name.compare("cs_player_controller"))
+					continue;
+
+				get_first_entity(entity, first_player_controller);
+				break;
+			}
+		}
+
+		if (!first_player_controller)
+			continue;
+
+		uint64_t player_controller = first_player_controller;
+		int i = -1;
+		nlohmann::json j;
+		j["global"]["map"] = map_name;
+		j["global"]["team"] = process->read<int>(local_player + offset::s_teamnum_Offset);
+		for (; player_controller; player_controller = get_next_entity(process->read<uint64_t>(player_controller + 0x10))) {
+			i++;
+			const auto pawn = get_entity_pawn(process->read<uint64_t>(player_controller + offset::s_dwPlayerPawn_Offset));
+			if (!pawn)
+				continue;
+
+			const auto health = process->read<int>(player_controller + offset::s_dwPawnHealth_Offset);
+			if (health <= 0 || health > 100)
+				continue;
+
+			const auto name_ptr = process->read<uint64_t>(player_controller + 0x720);
+			if (!name_ptr)
+				continue;
+
+			auto pos = process->read<pos_t>(pawn + offset::s_Position_Offset);
+			auto _i = std::to_string(i);
+			j[_i]["health"] = health;
+			j[_i]["local"] = process->read<bool>(player_controller + offset::s_bIsLocalPlayerController_Offset);
+			j[_i]["name"] = process->read_string(name_ptr, 32);
+			j[_i]["position"] = { pos.x, pos.y };
+			j[_i]["team"] = process->read<int>(player_controller + offset::s_teamnum_Offset);
+			j[_i]["weapon"] = "unknown";
+		}
+
+		DWORD write_buffer_written_bytes;
+		const auto pipe_write = WriteFile(pipe, j.dump().c_str(), j.dump().size(), &write_buffer_written_bytes, nullptr);
+		if (!pipe_write) {
+			std::cout << "pipe_write false = " << std::dec << GetLastError() << std::endl;
+			if (GetLastError() == 232) {
+				DisconnectNamedPipe(pipe);
+				CloseHandle(pipe);
+				connect();
+			}
+		}
+
+		if (auto pipe_flush = FlushFileBuffers(pipe); !pipe_flush)
+			std::cout << "pipe_flush false = " << std::dec << GetLastError() << std::endl;
+	}
+}
+
+#else // CS2
+void setup_csgo() {
+	std::cout << "Waiting for Counter-Strike: Global Offensive..." << std::endl;
 	if (!process->init("csgo.exe"))
-		return 0;
+		return;
 
 	std::cout << "Waiting for serverbrowser.dll..." << std::endl;
 	while (!process->get_module_base(L"serverbrowser.dll"))
@@ -101,12 +212,11 @@ int main() {
 	std::cout << "radar_base = 0x" << std::hex << radar_base << "(0x" << radar_base - client << ")" << std::endl;
 	std::cout << "dormant = 0x" << std::hex << dormant << std::endl;
 
-	connect();
 	while (true) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		if (GetAsyncKeyState(VK_END))
 			break;
-		
+
 		auto map = process->read_string(process->read<uint32_t>(client_state) + client_state_map, 64);
 		if (map.empty())
 			continue;
@@ -118,23 +228,23 @@ int main() {
 		nlohmann::json j;
 		j["global"]["map"] = map.c_str();
 		j["global"]["team"] = process->read<int>(local_player + netvars::m_iTeamNum);
-		for (auto i = 0; i <= 64; i++) {
+		for (auto i = 0; i <= 32; i++) {
 			const auto entity = process->read<uint32_t>(entity_list + 0x10 * i);
 			if (!entity)
 				continue;
-			
+
 			const auto health = process->read<int>(entity + netvars::m_iHealth);
 			if (!health)
 				continue;
-			
+
 			const auto lifestate = process->read<uint8_t>(entity + netvars::m_lifeState);
 			if (lifestate)
 				continue;
-			
+
 			const auto bdormant = process->read<uint8_t>(entity + dormant);
 			if (bdormant)
 				continue;
-			
+
 			const auto active_weapon = process->read<uint32_t>(entity + netvars::m_hActiveWeapon);
 			if (!active_weapon)
 				continue;
@@ -142,7 +252,7 @@ int main() {
 			const auto weapon_entity = process->read<uint32_t>(entity_list + ((active_weapon & 0xFFF) - 1) * 0x10);
 			if (!weapon_entity)
 				continue;
-			
+
 			auto weapon_index = process->read<short>(weapon_entity + netvars::m_iItemDefinitionIndex);
 			if (weapon_index > 64 || weapon_index < 1)
 				weapon_index = 42;
@@ -154,7 +264,7 @@ int main() {
 			auto name = process->read_string(radar + 0x174 * (i + 2) + 0x18, 128);
 			if (name.empty())
 				continue;
-			
+
 			struct pos_t {
 				float x, y;
 			} pos = process->read<pos_t>(entity + netvars::m_vecOrigin);
@@ -182,7 +292,11 @@ int main() {
 		if (auto pipe_flush = FlushFileBuffers(pipe); !pipe_flush)
 			std::cout << "pipe_flush false = " << std::dec << GetLastError() << std::endl;
 	}
+}
+#endif
 
+int main() {
+	setup_csgo();
 	DisconnectNamedPipe(pipe);
 	CloseHandle(pipe);
 }

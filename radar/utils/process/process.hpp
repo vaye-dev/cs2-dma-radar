@@ -16,7 +16,7 @@ public:
 	DWORD get_process_pid(const std::string& process_name);
 	DWORD get_module_size(const std::wstring& module_name);
 	uintptr_t get_module_base(const std::wstring& module_name);
-	uint32_t scan(uintptr_t start, size_t size, const char* signature, const char* mask);
+	uint64_t scan(uintptr_t start, size_t size, const char* signature, const char* mask);
 	
 	void dump(const std::string& file_name);
 

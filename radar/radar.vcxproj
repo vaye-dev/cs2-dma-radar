@@ -163,7 +163,9 @@
     <ClCompile Include="utils\utils.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="funcs.hpp" />
     <ClInclude Include="offsets.hpp" />
+    <ClInclude Include="structs.hpp" />
     <ClInclude Include="utils\process\process.hpp" />
     <ClInclude Include="utils\utils.hpp" />
     <ClInclude Include="weapon_ids.hpp" />

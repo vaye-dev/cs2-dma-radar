@@ -4,6 +4,7 @@
 
 // 2023-06-07 07:51:01.337255200 UTC
 
+#ifndef CS2
 namespace hazedumper {
 	constexpr ::std::int64_t timestamp = 1686124261;
 	namespace netvars {
@@ -105,3 +106,45 @@ namespace hazedumper {
 }
 
 using namespace hazedumper;
+#else// CS2
+namespace offset {
+	// credits: https://github.com/UnnamedZ03/CS2-external-base/blob/main/source/CSSPlayer.hpp
+
+	/* @NOTE: I retrieved this with a little reversing, nothing complicated and I regularly post new ones. */
+	constexpr DWORD64 s_dwEntityList_Offset = 0x167ABA8;
+	constexpr DWORD64 viewmatrix_Offset = 0x1714C70;
+	constexpr DWORD64 localplayer_Offset = 0x17142C8;
+	
+	constexpr DWORD64 globals_Offset = 0x1556718;
+
+	/* @NOTE: You can obtain such offsets by using source2gen */
+	constexpr DWORD64 s_dwPawnIsAlive_Offset = 0x804;
+	constexpr DWORD64 s_dwPawnHealth_Offset = 0x808;
+	constexpr DWORD64 s_dwPlayerPawn_Offset = 0x5dc;
+	constexpr DWORD64 s_dwSanitizedName_Offset = 0x720;
+	constexpr DWORD64 s_Position_Offset = 0x12AC;
+	constexpr DWORD64 s_teamnum_Offset = 0x3bf;
+	constexpr DWORD64 s_bIsLocalPlayerController_Offset = 0x6A0;
+
+	inline DWORD64 g_dwEntList = 0;
+	inline DWORD64 client = 0;
+
+	class CGlobalVarsBase {
+	public:
+		float real_time;
+		std::int32_t frame_count;
+		std::uint8_t padding_0[0x8];
+		std::int32_t max_clients;
+		float interval_per_tick;
+		std::uint8_t padding_1[0x14];
+		float current_time;
+		float current_time_2;
+		std::uint8_t padding_2[0xC];
+		std::int32_t tick_count;
+		float interval_per_tick_2;
+		std::uint8_t padding_3[0x138];
+		std::uint64_t current_map;
+		std::uint64_t current_map_name;
+	};
+}
+#endif
