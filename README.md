@@ -1,4 +1,4 @@
-# <div align="center">csgo-external-radar</div>
+# <div align="center">cs2-external-radar</div>
 
 <div align="center">
     <img src="https://img.shields.io/badge/License-MIT-important?style=flat-square" />
@@ -48,7 +48,7 @@ Folder Structure:
 
 - Navigate to /csgo/resource/overviews then copy contents to /app/resource/overviews on second pc
 - Start the radar
-- Start CSGO and wait until you are in the main menu (or until the offsets are visible in the console)
+- Start CS2 and wait until you are in the main menu (or until the offsets are visible in the console)
 - Start the server (`node server/server.js`)
 - Visit localhost:3000 in your favorite browser
 
