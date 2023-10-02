@@ -20,7 +20,7 @@ inline uint64_t get_next_entity(uint64_t entity_identity) {
 }
 
 inline uint64_t get_entity(uint64_t i) {
-	const auto list_entry = process->read<uint64_t>(offset::g_dwEntList + (8 * (i & 0x7FFF) >> 9) + 16);
+	const auto list_entry = process->read<uint64_t>(offset::entity_list + (8 * (i & 0x7FFF) >> 9) + 16);
 	if (!list_entry)
 		return 0;
 
@@ -28,7 +28,7 @@ inline uint64_t get_entity(uint64_t i) {
 }
 
 inline uint64_t get_entity_pawn(uint64_t entity_pawn_handle) {
-	std::uint64_t ListEntry = process->read<uint64_t>(offset::g_dwEntList + 0x8 * ((entity_pawn_handle & 0x7FFF) >> 9) + 16);
+	std::uint64_t ListEntry = process->read<uint64_t>(offset::entity_list + 0x8 * ((entity_pawn_handle & 0x7FFF) >> 9) + 16);
 	if (!ListEntry)
 		return 0;
 
