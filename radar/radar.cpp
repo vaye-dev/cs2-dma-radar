@@ -30,7 +30,7 @@ bool connect() {
 	pipe = INVALID_HANDLE_VALUE;
 	memset(pipe_input, 0, sizeof(pipe_input));
 	memset(pipe_output, 0, sizeof(pipe_output));
-	
+
 	pipe = CreateNamedPipeA("\\\\.\\pipe\\23d339ddef636cb0a5b9d0be60a289bc4ae87cc62cfd12b8f322e6310c1eea66",
 		PIPE_ACCESS_OUTBOUND, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
 		PIPE_UNLIMITED_INSTANCES,
@@ -61,16 +61,20 @@ void setup_csgo() {
 	}
 
 	auto client = process->client();
-	auto pglobals = process->read<uint64_t>(offset::globals_offset);
 
 	connect();
 	while (true) {
+		auto pglobals = process->read<uint64_t>(offset::globals_offset);
 		const auto local_player = process->read<uint64_t>(client + offset::local_player_offset);
 		if (!local_player)
 			continue;
-
 		const auto globals = process->read<offset::CGlobalVarsBase>(pglobals);
-		const auto map_name = process->read_string(globals.current_map_name, 32);
+
+		auto pglobals1 = process->read<uint64_t>(client + offset::globals_offset);
+		auto pglobals2 = process->read<uint64_t>(((pglobals1 + 0x188) + 0) + 0);
+
+		const auto map_name = process->read_string(pglobals2, 32);
+
 		if (map_name == "<empty>")
 			continue;
 
@@ -79,6 +83,7 @@ void setup_csgo() {
 			continue;
 
 		static uint64_t first_player_controller = 0;
+		//if (first_player_controller == 0 || process->read<int>(local_player + offset::m_iHealth) <= 0) {
 		if (first_player_controller == 0 || process->read<int>(local_player + offset::m_iPawnHealth) <= 0) {
 			for (int i = 0; i < 32; i++) {
 				const auto entity = get_entity(i);
@@ -116,11 +121,13 @@ void setup_csgo() {
 			if (!pawn)
 				continue;
 
-			const auto health = process->read<int>(player_controller + offset::m_iPawnHealth);
+			//const auto health = process->read<int>(player_controller + offset::m_iPawnHealth);
+			const auto health = process->read<int>(pawn + offset::m_iHealth);
+
 			if (health <= 0 || health > 100)
 				continue;
 
-			const auto name_ptr = process->read<uint64_t>(player_controller + 0x720);
+			const auto name_ptr = process->read<uint64_t>(player_controller + 0x720/* m_sSanitizedPlayerName?*/);
 			if (!name_ptr)
 				continue;
 
@@ -149,6 +156,8 @@ void setup_csgo() {
 			std::cout << "pipe_flush false = " << std::dec << GetLastError() << std::endl;
 	}
 }
+
+
 
 
 int main() {
