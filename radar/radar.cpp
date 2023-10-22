@@ -24,6 +24,8 @@ HANDLE pipe = INVALID_HANDLE_VALUE;
 char pipe_input[1023];
 char pipe_output[1023];
 
+uint64_t entity_list;
+
 std::string map_name = "";
 
 bool connect() {
@@ -38,17 +40,22 @@ bool connect() {
 		NULL,
 		nullptr);
 
-	if (pipe == INVALID_HANDLE_VALUE)
+	if (pipe == INVALID_HANDLE_VALUE) {
 		std::cout << "pipe INVALID_HANDLE_VALUE = " << GetLastError() << std::endl;
+		return false;
+	}
 
-	if (auto pipe_connect = ConnectNamedPipe(pipe, nullptr); !pipe_connect)
+	if (auto pipe_connect = ConnectNamedPipe(pipe, nullptr); !pipe_connect) {
 		std::cout << "pipe_connect false = " << GetLastError() << std::endl;
+		return false;
+	}
 
 	return true;
 }
 
-void setup_csgo() {
-	std::cout << "Waiting for Counter-Strike 2..." << std::endl;
+
+void setup_cs2() {
+	std::cout << "Waiting for CS2..." << std::endl;
 	if (!process->init("cs2.exe"))
 		return;
 
@@ -56,30 +63,50 @@ void setup_csgo() {
 
 	while (!process->client()) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
-		if (!process->client())
-			process->client() = process->get_module_base(L"client.dll");
+		process->client() = process->get_module_base(L"client.dll");
 	}
 
-	auto client = process->client();
-	auto pglobals = process->read<uint64_t>(offset::globals_offset);
+	auto signature = [&](std::string_view sig_name, const std::wstring& base_module, std::string_view signature, uint64_t offset = 0, uint64_t base_addr = process->client()) {
+		auto ret = process->rip_rel(process->scan(base_module, signature));
+		if (offset)
+			ret = process->read<uint64_t>(ret) + offset;
+
+		std::cout << sig_name << ": 0x" << std::hex << ret - base_addr << "\n";
+		return ret;
+	};
+
+	offset::entity_list_sig = signature("entity_list", L"client.dll", "48 8B 0D ? ? ? ? 48 89 7C 24 ? 8B FA C1 EB");
+	if (!offset::entity_list_sig)
+		return;
+
+
+	offset::globals = signature("global_vars", L"client.dll", "48 89 0D ? ? ? ? 48 89 41");
+	if (!offset::globals)
+		return;
+
+	offset::local_player = signature("local_player", L"client.dll", "48 8B 05 ? ? ? ? 48 85 C0 74 4F");
+	if (!offset::local_player)
+		return;
 
 	connect();
+
 	while (true) {
-		const auto local_player = process->read<uint64_t>(client + offset::local_player_offset);
+		const auto local_player = process->read<uint64_t>(offset::local_player);
 		if (!local_player)
 			continue;
 
+		const auto pglobals = process->read<uint64_t>(offset::globals);
 		const auto globals = process->read<offset::CGlobalVarsBase>(pglobals);
 		const auto map_name = process->read_string(globals.current_map_name, 32);
 		if (map_name == "<empty>")
 			continue;
 
-		offset::entity_list = process->read<uint64_t>(client + offset::entity_list_offset);
+		offset::entity_list = process->read<uint64_t>(offset::entity_list_sig);
 		if (!offset::entity_list)
 			continue;
 
 		static uint64_t first_player_controller = 0;
-		if (first_player_controller == 0 || process->read<int>(local_player + offset::m_iPawnHealth) <= 0) {
+		if (first_player_controller == 0) {
 			for (int i = 0; i < 32; i++) {
 				const auto entity = get_entity(i);
 				if (!entity)
@@ -106,21 +133,20 @@ void setup_csgo() {
 			continue;
 
 		uint64_t player_controller = first_player_controller;
-		int i = -1;
 		nlohmann::json j;
 		j["global"]["map"] = map_name;
 		j["global"]["team"] = process->read<int>(local_player + offset::m_iTeamNum);
-		for (; player_controller; player_controller = get_next_entity(process->read<uint64_t>(player_controller + 0x10))) {
+		for (int i = -1; player_controller; player_controller = get_next_entity(process->read<uint64_t>(player_controller + 0x10))) {
 			i++;
-			const auto pawn = get_entity_pawn(process->read<uint64_t>(player_controller + offset::m_hPawn));
+			const auto pawn = get_entity_pawn(process->read<uint64_t>(player_controller + offset::m_hPlayerPawn));
 			if (!pawn)
 				continue;
 
-			const auto health = process->read<int>(player_controller + offset::m_iPawnHealth);
+			const auto health = process->read<int>(pawn + offset::m_iHealth);
 			if (health <= 0 || health > 100)
 				continue;
 
-			const auto name_ptr = process->read<uint64_t>(player_controller + 0x720);
+			const auto name_ptr = process->read<uint64_t>(player_controller + offset::m_sSanitizedPlayerName);
 			if (!name_ptr)
 				continue;
 
@@ -152,7 +178,7 @@ void setup_csgo() {
 
 
 int main() {
-	setup_csgo();
+	setup_cs2();
 	DisconnectNamedPipe(pipe);
 	CloseHandle(pipe);
 }

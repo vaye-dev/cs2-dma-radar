@@ -92,23 +92,3 @@ void c_process::dump(const std::string& file_name) {
 		CloseHandle(dump_file);
 	}
 }
-
-uint64_t c_process::scan(uintptr_t start, size_t size, const char* signature, const char* mask) {
-	auto data_compare = [&](const uint8_t* pData, const uint8_t* pMask, const char* pszMask) {
-		for (; *pszMask; ++pszMask, ++pData, ++pMask)
-			if (*pszMask == 'x' && *pData != *pMask)
-				return false;
-
-		return (*pszMask == NULL);
-	};
-	
-	std::unique_ptr<uint8_t[]> remote(new uint8_t[size]);
-	if (!read(start, remote.get(), size))
-		return NULL;
-
-	for (size_t i = 0; i < size; i++)
-		if (data_compare(static_cast<const uint8_t*>(remote.get() + i), reinterpret_cast<const uint8_t*>(signature), mask))
-			return start + i;
-
-	return NULL;
-}

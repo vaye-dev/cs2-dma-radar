@@ -5,13 +5,12 @@
 // 2023-06-07 07:51:01.337255200 UTC
 namespace offset {
 	// credits: https://github.com/UnnamedZ03/CS2-external-base/blob/main/source/CSSPlayer.hpp
-	constexpr DWORD64 entity_list_offset = 0x178c8a8;
-	constexpr DWORD64 view_matrix_offset = 0x187a700;
-	constexpr DWORD64 local_player_offset = 0x17db128;
-	constexpr DWORD64 globals_offset = 0x168fce8;
+	inline DWORD64 entity_list_sig = 0x0;
+	inline DWORD64 local_player = 0x0;
+	inline DWORD64 globals = 0x0;
 
-	constexpr DWORD64 m_iPawnHealth = 0x808;
-	constexpr DWORD64 m_hPawn = 0x5dc;
+	constexpr DWORD64 m_iHealth = 0x32c;
+	constexpr DWORD64 m_hPlayerPawn = 0x7bc;
 	constexpr DWORD64 m_sSanitizedPlayerName = 0x720;
 	constexpr DWORD64 m_vOldOrigin = 0x1214;
 	constexpr DWORD64 m_iTeamNum = 0x3bf;

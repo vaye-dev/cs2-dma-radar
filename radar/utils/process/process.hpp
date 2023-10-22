@@ -5,6 +5,7 @@
 #include <string>
 #include <array>
 #include <vector>
+#include <charconv>
 #include <assert.h>
 #include "vmmdll.h"
 #include "leechcore.h"
@@ -16,8 +17,59 @@ public:
 	DWORD get_process_pid(const std::string& process_name);
 	DWORD get_module_size(const std::wstring& module_name);
 	uintptr_t get_module_base(const std::wstring& module_name);
-	uint64_t scan(uintptr_t start, size_t size, const char* signature, const char* mask);
-	
+
+	template<typename T = std::uint64_t>
+	T scan(const std::wstring& module_name, const std::string_view pattern) noexcept {
+		constexpr auto pattern_to_bytes = [](const std::string_view pattern) -> std::vector<std::int32_t> {
+			std::vector<std::int32_t> bytes;
+			for (std::size_t i = 0; i < pattern.size(); ++i) {
+				if (pattern[i] == ' ')
+					continue;
+
+				if (pattern[i] == '?') {
+					bytes.push_back(-1);
+					continue;
+				}
+
+				if (i + 1 < pattern.size()) {
+					std::int32_t value = 0;
+					if (const auto [ptr, ec] = std::from_chars(pattern.data() + i, pattern.data() + i + 2, value, 16); ec == std::errc())
+						bytes.push_back(value);
+					++i;
+				}
+			}
+			return bytes;
+		};
+
+		const auto module_base = get_module_base(module_name);
+		const auto module_size = get_module_size(module_name);
+		const auto module_data = std::make_unique<std::uint8_t[]>(module_size);
+		if (!read(module_base, module_data.get(), module_size))
+			return 0;
+
+		const std::vector<std::int32_t> pattern_bytes = pattern_to_bytes(pattern);
+		for (std::size_t i = 0; i < module_size - pattern.size(); ++i) {
+			bool found = true;
+			for (std::size_t j = 0; j < pattern_bytes.size(); ++j) {
+				if (module_data[i + j] != pattern_bytes[j] && pattern_bytes[j] != -1) {
+					found = false;
+					break;
+				}
+			}
+
+			if (found)
+				return module_base + i;
+		}
+
+		return 0;
+	}
+
+	template<typename T = std::uint64_t>
+	T rip_rel(const uintptr_t address) noexcept {
+		auto displacement = read<int32_t>(address + 0x3);
+		return address + displacement + 0x7;
+	}
+
 	void dump(const std::string& file_name);
 
 	bool read(uintptr_t address, void* buffer, size_t length) {
