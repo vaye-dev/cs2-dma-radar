@@ -1,4 +1,4 @@
-# <div align="center">cs2-external-radar</div>
+# <div align="center">cs2-dma-radar</div>
 
 <div align="center">
     <img src="https://img.shields.io/badge/License-MIT-important?style=flat-square" />
