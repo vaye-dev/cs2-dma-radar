@@ -37,12 +37,10 @@ Folder Structure:
 📁 root/
 ├─ csgo-external-radar.exe
 ├─ radar.exe
-├─ 📁 dependencies/
-│  ├─ texconv.exe
 ```
 ## Usage
 
-- Navigate to /csgo/resource/overviews then copy contents to /app/resource/overviews on second pc (no longer applies to cs2 download or extract your own map files and store in app/public/images)
+- Navigate to /csgo/resource/overviews then copy contents to /app/resource/overviews on second pc (no longer applies to cs2 download or extract your own map files from the .vpk files and store in app/public/images)
 - Start the radar
 - Start CS2 and wait until you are in the main menu (or until the offsets are visible in the console)
 - Start the server (`node server/server.js`)
@@ -54,13 +52,12 @@ Folder Structure:
     - Active
     - Health
     - Name
-    - Weapon
 
 - Team
     - Active
     - Health
     - Name
-    - Weapon
+
 - Local
     - Active
 
